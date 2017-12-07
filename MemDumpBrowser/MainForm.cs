@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -16,12 +17,34 @@ namespace MemDumpBrowser
         public MainForm()
         {
             InitializeComponent();
-            LoadDump(@"C:\Users\adrian.rus\MemDumpBrowser.DMP");
+            //LoadDump(@"C:\Users\arus\AppData\Local\Temp\ul-desk.x64.DMP");
+            LoadDump(@"c:\Users\arus\Desktop\perf\TabCount-Perf\ul-desk.x64.DMP");
+            // LoadDump(Process.GetProcessesByName("SampleTabPage").Single());
             this.Closed += MainForm_Closed;
             treeView1.BeforeExpand += TreeView1_BeforeExpand;
+            treeView1.AfterSelect += TreeView1_AfterSelect;
+            dataGridView1.AutoGenerateColumns = true;
+
+            this.Load += MainForm_Load;
         }
 
-        Sample sample = new Sample();
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            this.Text = "Memory Explorer!";
+        }
+
+        private void TreeView1_AfterSelect(object sender, TreeViewEventArgs e)
+        {
+            var node = e.Node;
+
+            var obj = (ObjData)node.Tag;
+
+            dataGridView1.DataSource = _target.ShowFields(obj.ClrObject).ToList();
+            dataGridView1.AutoResizeColumns();
+        }
+
+        private Sample sample = new Sample("arus", 12);
+        private readonly MemoryExplorer _target = new MemoryExplorer();
 
         private void TreeView1_BeforeExpand(object sender, TreeViewCancelEventArgs e)
         {
@@ -32,7 +55,7 @@ namespace MemDumpBrowser
 
             var obj = (ObjData)node.Tag;
 
-            node.Nodes.AddRange(obj.ClrObject.EnumerateObjectReferences().Select(o => GetNode(o)).ToArray());
+            node.Nodes.AddRange(obj.ClrObject.EnumerateObjectReferences().Select(GetNode).ToArray());
         }
 
         private void MainForm_Closed(object sender, EventArgs e)
@@ -40,16 +63,12 @@ namespace MemDumpBrowser
             _target?.Dispose();
         }
 
-        DataTarget _target;
-        ClrRuntime _runtime;
-        private List<ClrObject> _objects = new List<ClrObject>();
-
         private void openToolStripMenuItem_Click(object sender, EventArgs e)
         {
             OpenFileDialog fd = new OpenFileDialog();
             fd.Multiselect = false;
             fd.Filter = "*.dmp|*.dmp|*.*|*.*";
-            
+
             if (fd.ShowDialog(this) == DialogResult.OK)
             {
                 string fileName = fd.FileName;
@@ -57,38 +76,31 @@ namespace MemDumpBrowser
             }
         }
 
-        private async void LoadDump(string fileName)
+        private void LoadDump(string fileName)
         {
             _target?.Dispose();
+            _target.LoadDump(fileName);
+
             lblStatus.Text = fileName;
-            _target = DataTarget.LoadCrashDump(fileName);
-            ClrInfo runtimeInfo = _target.ClrVersions[0];//.ClrInfo[0];  // just using the first runtime
-            _runtime = runtimeInfo.CreateRuntime();
+
             LoadThreads();
             btnFind.Enabled = false;
-            //await Task.Run(new Action(LoadObjects));
-            LoadObjects();
+            _target.LoadObjects();
             btnFind.Enabled = true;
         }
 
-        private void LoadObjects()
+        private void LoadDump(Process fileName)
         {
-            var heap = _runtime.Heap;
+            _target?.Dispose();
+            _target.LoadDump(fileName);
 
-            if (!heap.CanWalkHeap)
-            {
-                Console.WriteLine("Cannot walk the heap!");
-            }
-            else
-            {
-                _objects.Clear();
-                foreach (var item in heap.EnumerateObjects())
-                {
-                    _objects.Add(item);
-                }
-                
-            }
-        }   
+            lblStatus.Text = fileName.ProcessName;
+
+            LoadThreads();
+            btnFind.Enabled = false;
+            _target.LoadObjects();
+            btnFind.Enabled = true;
+        }
 
         private void openProcessToolStripMenuItem_Click(object sender, EventArgs e)
         {
@@ -99,12 +111,15 @@ namespace MemDumpBrowser
         {
             if (_target == null) return;
 
+            treeView1.SuspendLayout();
+
             treeView1.Nodes.Clear();
-            foreach (var obj in _objects
-            .Where(o => o.Type.ToString().Contains(txtFind.Text)))
-            {
-                treeView1.Nodes.Add(GetNode(obj));
-            }
+            treeView1.Nodes.AddRange(
+            _target.Objects
+            .Where(o => o.Type.ToString().StartsWith(txtFind.Text))
+            .Select(x => GetNode(x)).ToArray());
+
+            treeView1.ResumeLayout();
         }
 
         private TreeNode GetNode(ClrObject o1)
@@ -117,13 +132,12 @@ namespace MemDumpBrowser
 
         private void findThreads_Click(object sender, EventArgs e)
         {
-            
         }
 
         private void LoadThreads()
         {
             treeThreads.Nodes.Clear();
-            foreach (ClrThread thread in _runtime.Threads)
+            foreach (ClrThread thread in _target.Threads)
             {
                 if (!thread.IsAlive)
                     continue;
@@ -133,7 +147,6 @@ namespace MemDumpBrowser
                 tn.Tag = td;
 
                 treeThreads.Nodes.Add(tn);
-
             }
         }
 
@@ -144,7 +157,14 @@ namespace MemDumpBrowser
             var obj  = (ObjData)node.Tag;
 
             // node.
+        }
 
+        private void txtFind_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.KeyData == Keys.Enter)
+            {
+                btnFind.PerformClick();
+            }
         }
     }
 }
