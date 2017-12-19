@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Reflection;
 using NUnit.Framework;
-using System.Text.RegularExpressions;
 using Microsoft.Diagnostics.Runtime;
 using SampleProject;
 
@@ -18,7 +17,13 @@ namespace MDExportObjects
             _objects  = Program.LoadDump(file).ToList();
         }
 
-        string file = @"C:\Users\adrian.rus\Documents\Visual Studio 2015\Projects\MemDumpBrowser\MDExportObjects\SampleProject.dmp";
+        private static Dictionary<string, FieldInfo> GetFields(Type t)
+        {
+            var fieldInfos = t.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).ToList();
+            return fieldInfos.ToDictionary(info => info.Name);
+        }
+
+        private string file = @"C:\work\bitbucket\memorydumpbrowser\MDExportObjects\SampleProject.dmp";
         private IEnumerable<ClrObject> _objects;
 
         [Test]
@@ -36,11 +41,38 @@ namespace MDExportObjects
         }
 
         [Test]
+        public void Simple_Structs()
+        {
+            var obj = Program.Load<SimpleStruct>(_objects).Single();
+            var simpleType = (SimpleStruct)obj.RuntimeObject;
+
+            Assert.AreEqual("aur", simpleType.Name);
+            Assert.AreEqual(55, simpleType.Age);
+
+            AssertNoWarnings(obj);
+            AssertNoErrors(obj);
+        }
+
+        [Test]
+        public void ObjectContainingStruct()
+        {
+             var obj = Program.Load<ObjectContainingStruct>(_objects).Single();
+             var simpleType = (ObjectContainingStruct)obj.RuntimeObject;
+
+            Assert.AreEqual("arus", simpleType.Data.Name);
+            Assert.AreEqual(99, simpleType.Data.Age);
+            Assert.AreEqual(new Point(13,18), simpleType.Data.Location);
+            Assert.AreEqual(new DateTime(200, 12, 31), simpleType.Data.Timestamp);
+
+            AssertNoWarnings(obj);
+            AssertNoErrors(obj);
+        }
+
+        [Test]
         public void Simple_Array()
         {
             var obj = Program.Load<SimpleArrayType>(_objects).Single();
             var simpleType = (SimpleArrayType)obj.RuntimeObject;
-
 
             CollectionAssert.AreEqual(new[] { "one", "two" }, simpleType.Names);
             CollectionAssert.AreEqual(new[] { 1, 2 }, simpleType.Ages);
@@ -54,7 +86,6 @@ namespace MDExportObjects
         {
             var obj = Program.Load<SimpleListType>(_objects).Single();
             var simpleType = (SimpleListType)obj.RuntimeObject;
-
 
             CollectionAssert.AreEqual(new List<string> { "two", "three" }, simpleType.Names);
 
@@ -70,23 +101,6 @@ namespace MDExportObjects
         private void AssertNoWarnings(Mixins.Pair obj)
         {
             CollectionAssert.IsEmpty(obj.Warnings, "Warnings found");
-        }
-
-        [Test]
-        public void Tests1()
-        {
-
-            var t2 = typeof(System.Collections.Generic.List<System.String>);
-            
-            // arrange
-            var t1 = "System.Collections.Generic.List<System.String>"
-                .Replace("<",
-                "`1[").Replace(">", "]");
-            var type = Type.GetType(t1);
-            //act
-
-            //assert
-            Assert.NotNull(type);
         }
     }
 }

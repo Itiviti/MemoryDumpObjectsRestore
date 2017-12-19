@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
@@ -186,31 +187,54 @@ namespace MDExportObjects
 
         public static Pair ExtractStructFields(Pair p)
         {
-            //var obj = p.ClrObj;
-            //foreach (var field in obj.Type.Fields.Where(field => field.IsValueClass))
-            //{
-            //    string typeString = HackGenerics(field.Type);
-            //    var type = Type.GetType(typeString);
-            //    if (type == null)
-            //    {
-            //        p.Errors.Add($"Can't get type for {typeString}");
-            //        continue;
-            //    }
+            var obj = p.ClrObj;
+            foreach (var field in obj.Type.Fields.Where(field => field.IsValueClass))
+            {
+                string typeString = HackGenerics(field.Type);
 
-            //    var fieldInfos = GetFields(type);
-            //    ClrValueClass structClass = obj.GetValueClassField(field.Name);
-            //    var result = FormatterServices.GetUninitializedObject(type);
+                var assName = Path.ChangeExtension(Path.GetFileName(field.Type.Module.AssemblyName), null);
+                var ass =
+                    Assembly
+                        .GetExecutingAssembly()
+                        .GetReferencedAssemblies()
+                        .FirstOrDefault(name => assName == name.Name);
+                Type type;
+                if (ass != null)
+                {
+                    type = Type.GetType(Assembly.CreateQualifiedName(ass.Name, typeString));
+                }
+                else
+                {
+                    type = Type.GetType(typeString);
+                }
 
-            //    foreach (var fld in structClass.Type.Fields)
-            //    {
-            //        object res = ExtractRes(fld, structClass.Address, structClass);
-            //        fieldInfos[fld.Name].SetValue(result, res);
-            //    }
+                if (type == null)
+                {
+                    p.Errors.Add($"Can't get type for {typeString}");
+                    continue;
+                }
 
-            //    p.fieldInfo[field.Name].SetValue(p.RuntimeObject, result);
-            //}
+                var fieldInfos = GetFields(type);
+                ClrValueClass structClass = obj.GetValueClassField(field.Name);
+                var result = FormatterServices.GetUninitializedObject(type);
 
-            //return p;
+                foreach (var fld in structClass.Type.Fields)
+                {
+                    // object res = ExtractRes(fld, structClass.Address, structClass);
+
+                    // var value = field.GetValue(structClass.Address);
+                    object value = null;
+                    if (fld.Type.IsString)
+                        value = structClass.GetStringField(fld.Name);
+                    else if (fld.Type.IsPrimitive)
+                        value = fld.GetValue(structClass.Address, true);
+
+                    fieldInfos[fld.Name].SetValue(result, value);
+                }
+
+                p.fieldInfo[field.Name].SetValue(p.RuntimeObject, result);
+            }
+
             return p;
         }
 
