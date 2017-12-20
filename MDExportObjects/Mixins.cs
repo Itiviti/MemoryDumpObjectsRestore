@@ -5,6 +5,8 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using Microsoft.Diagnostics.Runtime;
+using Microsoft.Diagnostics.Runtime.Desktop;
+using MoreLinq;
 using SampleProject;
 
 namespace MDExportObjects
@@ -14,13 +16,24 @@ namespace MDExportObjects
         public static IEnumerable<Pair> Export(this IEnumerable<ClrObject> source, Type type)
         {
             return source
-                .Select(x => new Pair(x, FormatterServices.GetUninitializedObject(type)))
+                .Select(x => new Pair(x, GetUninitializedObject(type, x.Address)))
                 .Select(ExtractPrimitiveFields)
                 .Select(ExtractStructFields)
                 .Select(ExtractArray)
                 .Select(ExtractReferenceObjects)
 
                 ;
+        }
+
+        private static object GetUninitializedObject(Type type, ulong address)
+        {
+            object result = null;
+            if (Pair.Cache.TryGetValue(address, out result))
+                return result;
+
+            var uninitializedObject = FormatterServices.GetUninitializedObject(type);
+            Pair.Cache.Add(address, uninitializedObject);
+            return uninitializedObject;
         }
 
         private static Pair ExtractArray(Pair p)
@@ -30,9 +43,9 @@ namespace MDExportObjects
                 .Where(field => field.Type.IsArray))
             {
                 Array arr;
-                if (ExtractArray(p, obj, field, out arr)) continue;
+                if (!ExtractArray(p, obj, field, out arr)) continue;
 
-                p.fieldInfo[field.Name].SetValue(p.RuntimeObject, arr);
+                p.FieldInfo[field.Name].SetValue(p.RuntimeObject, arr);
             }
 
             return p;
@@ -51,33 +64,46 @@ namespace MDExportObjects
             {
                 int len = field.Type.GetArrayLength(array.Address);
 
-                string typeString2 = HackGenerics(array.Type.ComponentType);
-                var type = Type.GetType(typeString2);
-                if (type == null)
-                {
-                    p.Errors.Add($"Can't get type for {typeString2}");
-                    return true;
-                }
+                Type type = null;;
+                if (!GetType(p, array.Type.ComponentType, out type))
+                    return false;
+
                 arr = Array.CreateInstance(type, len);
                 for (int i = 0; i < len; i++)
                 {
                     ulong address = (ulong) array.Type.GetArrayElementValue(array.Address, i);
+                    if (address == 0) continue;
                     ClrType otype = Program._runtime.Heap.GetObjectType(address);
-                    string typeString = HackGenerics(otype);
-                    var type1 = Type.GetType(typeString);
-                    if (type1 == null)
-                    {
-                        p.Errors.Add($"Can't get type for {typeString}");
+
+                    Type type1 = null; ;
+                    if (!GetType(p, otype, out type1))
                         continue;
-                    }
+
                     var clrObject = new ClrObject(address, otype);
-                    var value = Export(Yield(clrObject), type1).FirstOrDefault();
-                    p.Warnings.AddRange(value.Warnings);
-                    p.Errors.AddRange(value.Errors);
-                    arr.SetValue(value.RuntimeObject, i);
+
+                    if (clrObject.IsNull) continue;
+
+                    object value1 = null;
+                    if (clrObject.Type.IsString)
+                    {
+                        value1 = GetStringContents(clrObject);
+                    }
+                    else if (clrObject.Type.IsPrimitive)
+                    {
+                        value1 = field.GetValue(obj.Address);
+                    }
+                    else
+                    {
+                        var value = Export(Yield(clrObject), type1).FirstOrDefault();
+                        p.Warnings.AddRange(value.Warnings);
+                        p.Errors.AddRange(value.Errors);
+                        value1 = value.RuntimeObject;
+                    }
+
+                    arr.SetValue(value1, i);
                 }
             }
-            return false;
+            return true;
         }
 
         private static IEnumerable<T> Yield<T>(T clrObject)
@@ -94,9 +120,9 @@ namespace MDExportObjects
                 .Where(field => !field.Type.IsString))
             {
                 object reff;
-                if (ExtractRefObject(p, field, obj, out reff)) continue;
+                if (!ExtractRefObject(p, field, obj, out reff)) continue;
 
-                p.fieldInfo[field.Name].SetValue(p.RuntimeObject, reff);
+                p.FieldInfo[field.Name].SetValue(p.RuntimeObject, reff);
             }
 
             return p;
@@ -105,29 +131,45 @@ namespace MDExportObjects
         private static bool ExtractRefObject(Pair p, ClrInstanceField field, ClrObject obj, out object reff)
         {
             reff = null;
-            string typeString = HackGenerics(field.Type);
-            var type = Type.GetType(typeString);
-            if (type == null)
+
+            var reference = obj.GetObjectField(field.Name);
+            if (reference.IsNull) return true;
+
+            if (reference.Type.IsString )
             {
-                p.Errors.Add($"Can't get type for {typeString}");
+                var value = GetStringContents(reference);
+
+                reff = value;
                 return true;
             }
 
-            var reference = obj.GetObjectField(field.Name);
-            reff = null;
-            if (reference.IsNull)
+            if (reference.Type.IsPrimitive)
             {
-                p.Warnings.Add($"Can't get info for {obj.Type.Name} -> {field.Name}");
-                reff = FormatterServices.GetUninitializedObject(type);
+                reff = field.GetValue(obj.Address);
+                return true;
             }
-            else
-            {
-                var par = Export(Yield(reference), type).Single();
-                reff = par.RuntimeObject;
-                p.Warnings.AddRange(par.Warnings);
-                p.Errors.AddRange(par.Errors);
-            }
-            return false;
+
+            if (Pair.Cache.TryGetValue(reference.Address, out reff))
+                return true;
+
+            Type type = null;
+
+            if (!GetType(p, reference.Type, out type))
+                return false;
+
+            var par = Export(Yield(reference), type).Single();
+            reff = par.RuntimeObject;
+            p.Warnings.AddRange(par.Warnings);
+            p.Errors.AddRange(par.Errors);
+
+            return true;
+        }
+
+        private static string GetStringContents(ClrObject reference)
+        {
+            // TODO: The amounts of hack is a bit much here
+            var clrHeap = Program._runtime.Heap.GetType().GetMethod("GetStringContents", BindingFlags.NonPublic | BindingFlags.Instance);
+            return (string)clrHeap.Invoke(Program._runtime.Heap, new object[] { reference.Address });
         }
 
         private static string HackGenerics(ClrType type)
@@ -141,20 +183,16 @@ namespace MDExportObjects
             {
                 this.ClrObj = clrObj;
                 this.RuntimeObject = runtimeObject;
-                this.fieldInfo = GetFields(runtimeObject.GetType());
+                this.FieldInfo = GetFields(runtimeObject.GetType());
                 Errors = new List<string>();
                 Warnings = new List<string>();
             }
 
-            private static Dictionary<string, FieldInfo> GetFields(Type t)
-            {
-                var fieldInfos = t.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).ToList();
-                return fieldInfos.ToDictionary(info => info.Name);
-            }
+            public static Dictionary<ulong, object> Cache { get; } = new Dictionary<ulong, object>();
 
             public ClrObject ClrObj;
             public object RuntimeObject;
-            public Dictionary<string, FieldInfo> fieldInfo;
+            public Dictionary<string, FieldInfo> FieldInfo;
             public List<string> Errors;
             public List<string> Warnings;
         }
@@ -165,7 +203,7 @@ namespace MDExportObjects
             {
                 var value = field.GetValue(p.ClrObj.Address);
 
-                p.fieldInfo[field.Name].SetValue(p.RuntimeObject, value);
+                p.FieldInfo[field.Name].SetValue(p.RuntimeObject, value);
             }
 
             return p;
@@ -190,141 +228,87 @@ namespace MDExportObjects
             var obj = p.ClrObj;
             foreach (var field in obj.Type.Fields.Where(field => field.IsValueClass))
             {
-                string typeString = HackGenerics(field.Type);
-
-                var assName = Path.ChangeExtension(Path.GetFileName(field.Type.Module.AssemblyName), null);
-                var ass =
-                    Assembly
-                        .GetExecutingAssembly()
-                        .GetReferencedAssemblies()
-                        .FirstOrDefault(name => assName == name.Name);
-                Type type;
-                if (ass != null)
-                {
-                    type = Type.GetType(Assembly.CreateQualifiedName(ass.Name, typeString));
-                }
-                else
-                {
-                    type = Type.GetType(typeString);
-                }
-
-                if (type == null)
-                {
-                    p.Errors.Add($"Can't get type for {typeString}");
-                    continue;
-                }
-
-                var fieldInfos = GetFields(type);
                 ClrValueClass structClass = obj.GetValueClassField(field.Name);
-                var result = FormatterServices.GetUninitializedObject(type);
 
-                foreach (var fld in structClass.Type.Fields)
-                {
-                    // object res = ExtractRes(fld, structClass.Address, structClass);
+                object result;
+                if (!ExtractStruct(p, field, structClass, out result)) continue;
 
-                    // var value = field.GetValue(structClass.Address);
-                    object value = null;
-                    if (fld.Type.IsString)
-                        value = structClass.GetStringField(fld.Name);
-                    else if (fld.Type.IsPrimitive)
-                        value = fld.GetValue(structClass.Address, true);
-
-                    fieldInfos[fld.Name].SetValue(result, value);
-                }
-
-                p.fieldInfo[field.Name].SetValue(p.RuntimeObject, result);
+                p.FieldInfo[field.Name].SetValue(p.RuntimeObject, result);
             }
 
             return p;
         }
 
-        private static Dictionary<string, FieldInfo> GetFields(Type t)
+        private static bool ExtractStruct(Pair p, ClrInstanceField field, ClrValueClass structClass, out object result)
         {
-            var fieldInfos = t.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).ToList();
-            return fieldInfos.ToDictionary(info => info.Name);
-        }
+            result = null;
+            Type type;
+            if (!GetType(p, field.Type, out type)) return false;
 
-        private static object ExtractRes(ClrInstanceField field, ulong address, ClrValueClass structClass)
-        {
-            if (field.IsPrimitive || field.Type.IsString)
-                return field.GetValue(address);
+            var fieldInfos = GetFields(type);
 
-            if (field.Type.IsArray)
+            result = FormatterServices.GetUninitializedObject(type);
+
+            foreach (var fld in structClass.Type.Fields)
             {
-                var array = structClass.GetObjectField(field.Name);
-
-                if (array.Type.ComponentType.IsString || array.Type.ComponentType.IsPrimitive)
+                object value = null;
+                if (fld.Type.IsString)
+                    value = structClass.GetStringField(fld.Name);
+                else if (fld.Type.IsPrimitive)
+                    value = fld.GetValue(structClass.Address, true);
+                else if (fld.Type.IsValueClass)
                 {
-                    return CreatePrimitiveArray(array);
+                    if (!ExtractStruct(p, fld, structClass.GetValueClassField(fld.Name), out value))
+                        continue;
                 }
-                if (array.Type.ComponentType.IsValueClass)
+                else if (fld.Type.IsArray)
                 {
-                    //TODO: create value class array;
-                    return null;
-                }
-
-                return CreateReferenceArray(field, address, array);
-            }
-            if (field.IsObjectReference)
-            {
-                string typeString = HackGenerics(field.Type);
-                var type = Type.GetType(typeString);
-                if (type == null)
-                {
-                    //TODO:  p.Errors.Add($"Can't get type for {typeString}");
-                    return null;
-                }
-
-                var reference = structClass.GetObjectField(field.Name);
-
-                if (reference.IsNull)
-                {
-                    //TODO:  p.Warnings.Add($"Can't get info for {obj.Type.Name} -> {field.Name}");
-                    return FormatterServices.GetUninitializedObject(type);
+                    Array arr = null;
+                    if (!ExtractArray(p, structClass.GetObjectField(fld.Name), fld, out arr))
+                        continue;
+                    value = arr;
                 }
                 else
                 {
-                    var par = Export(Yield(reference), type).Single();
-                    return par.RuntimeObject;
-                    //TODO: p.Warnings.AddRange(par.Warnings);
-                    //TODO: p.Errors.AddRange(par.Errors);
+                    if (!ExtractRefObject(p, field, structClass.GetObjectField(fld.Name), out value))
+                        continue;
                 }
+                fieldInfos[fld.Name].SetValue(result, value);
             }
-
-            return null;
+            return true;
         }
 
-        private static object CreateReferenceArray(ClrInstanceField field, ulong address, ClrObject array)
+        private static bool GetType(Pair p, ClrType clrType, out Type type)
         {
-            int len = field.Type.GetArrayLength(array.Address);
+            string typeString = HackGenerics(clrType);
 
-            string typeString2 = HackGenerics(array.Type.ComponentType);
-            var type = Type.GetType(typeString2);
+            var combine = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
+                Path.GetFileName(clrType.Module.AssemblyName));
+
+            Assembly ass = null;
+            if (File.Exists(combine))
+                ass = Assembly.LoadFile(combine);
+
+            var typeName = ass != null ? Assembly.CreateQualifiedName(ass.FullName, typeString) : typeString;
+            type = Type.GetType(typeName);
+
             if (type == null)
             {
-                // p.Errors.Add($"Can't get type for {typeString2}");
-                return null;
+                p.Errors.Add($"Can't get type for {typeString}");
+                return false;
             }
-            var arr = Array.CreateInstance(type, len);
-            for (int i = 0; i < len; i++)
-            {
-                ulong adr = (ulong) array.Type.GetArrayElementValue(array.Address, i);
-                ClrType otype = Program._runtime.Heap.GetObjectType(adr);
-                string typeString = HackGenerics(otype);
-                var type1 = Type.GetType(typeString);
-                if (type1 == null)
-                {
-                    // p.Errors.Add($"Can't get type for {typeString}");
-                    return null;
-                }
-                var clrObject = new ClrObject(address, otype);
-                var value = Export(Yield(clrObject), type1).FirstOrDefault();
-                // p.Warnings.AddRange(value.Warnings);
-                // p.Errors.AddRange(value.Errors);
-                arr.SetValue(value.RuntimeObject, i);
-            }
+            return true;
+        }
 
-            return arr;
+        private static Dictionary<string, FieldInfo> GetFields(Type t)
+        {
+            var fieldInfos = t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).ToList();
+            while (t != typeof(object) && t.BaseType != typeof(object) && t.BaseType != null)
+            {
+                t = t.BaseType;
+                fieldInfos.AddRange(t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).ToList());
+            }
+            return fieldInfos.DistinctBy(info => info.Name).ToDictionary(info => info.Name);
         }
 
         public static IEnumerable<T> Do<T>(this IEnumerable<T> t, Action<T> action)

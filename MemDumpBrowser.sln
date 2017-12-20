@@ -9,6 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MDExportObjects", "MDExport
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SampleProject", "SampleProject\SampleProject.csproj", "{EAA5B521-7B4B-451A-98B0-EE111218985A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MDFindString", "MDFindString\MDFindString.csproj", "{617359BD-5FBA-41CE-89F2-C7DDDB21DA07}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MDExportObjects.Tests", "MDExportObjects.Tests\MDExportObjects.Tests.csproj", "{165265D2-E3B4-4CD7-9F31-CBE3400C0F53}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +31,14 @@ Global
 		{EAA5B521-7B4B-451A-98B0-EE111218985A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EAA5B521-7B4B-451A-98B0-EE111218985A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EAA5B521-7B4B-451A-98B0-EE111218985A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{617359BD-5FBA-41CE-89F2-C7DDDB21DA07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{617359BD-5FBA-41CE-89F2-C7DDDB21DA07}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{617359BD-5FBA-41CE-89F2-C7DDDB21DA07}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{617359BD-5FBA-41CE-89F2-C7DDDB21DA07}.Release|Any CPU.Build.0 = Release|Any CPU
+		{165265D2-E3B4-4CD7-9F31-CBE3400C0F53}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{165265D2-E3B4-4CD7-9F31-CBE3400C0F53}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{165265D2-E3B4-4CD7-9F31-CBE3400C0F53}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{165265D2-E3B4-4CD7-9F31-CBE3400C0F53}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

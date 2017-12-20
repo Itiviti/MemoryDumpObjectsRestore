@@ -27,11 +27,13 @@ namespace MDExportObjects
             var pairs = objects
                 .Where(o => o.Type.ToString() == typeof(T).FullName).ToList();
 
+            Console.WriteLine("Found {0} matching objects for type {1}", pairs.Count, typeof(T).FullName);
             var export = pairs.Export(typeof(T)).ToList();
-            
-            
+
+            Console.WriteLine("Outputing {0} results: ", export.Count);
             export.SelectMany(p => p.Errors).Output("Error: ").ToList();
             export.SelectMany(p => p.Warnings).Output("Warn: ").ToList();
+
             return export;
         }
 

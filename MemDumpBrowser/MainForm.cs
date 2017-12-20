@@ -17,9 +17,6 @@ namespace MemDumpBrowser
         public MainForm()
         {
             InitializeComponent();
-            //LoadDump(@"C:\Users\arus\AppData\Local\Temp\ul-desk.x64.DMP");
-            LoadDump(@"c:\Users\arus\Desktop\perf\TabCount-Perf\ul-desk.x64.DMP");
-            // LoadDump(Process.GetProcessesByName("SampleTabPage").Single());
             this.Closed += MainForm_Closed;
             treeView1.BeforeExpand += TreeView1_BeforeExpand;
             treeView1.AfterSelect += TreeView1_AfterSelect;

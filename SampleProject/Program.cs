@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Text;
 
 namespace SampleProject
 {
@@ -16,6 +17,13 @@ namespace SampleProject
             new DateTime(2000, 12, 31),
             new Point(13,18)
             ));
+
+        private static ClassWithObjectGraph _objectGraph = new ClassWithObjectGraph(new ClassWithObjectGraph.MyClass(new ClassWithObjectGraph.MyClass.MyClass2("hello"), "beautiful"), "world");
+        private static ClassWithSelfReference _classWithSelfReference = new ClassWithSelfReference();
+        private static ClassWithSingletonReference _classWithSingletonReference = new ClassWithSingletonReference("ClassA");
+        private static ClassWithSingletonReference _classWithSingletonReferenceB = new ClassWithSingletonReference("ClassB");
+        private static ClassWithInterfaceField _classWithInterfaceA = new ClassWithInterfaceField(new Impl1("IntA"));
+        private static ClassWithInterfaceField _classWithInterfaceB = new ClassWithInterfaceField(new Impl2("IntB"));
 
         private static void Main(string[] args)
         {
@@ -112,22 +120,87 @@ namespace SampleProject
         public ClassWithSelfReference This { get; }
     }
 
-    public class ClassWithObjectGraph
+    public class Singleton
     {
-        public ClassWithObjectGraph(MyClass innerObject)
+        private Singleton()
         {
-            InnerObject = innerObject;
         }
 
+        public static Singleton Instance = new Singleton();
+    }
+
+    public class ClassWithSingletonReference
+    {
+        public string Name { get; }
+        public Singleton Singleton = Singleton.Instance;
+
+        public ClassWithSingletonReference(string name)
+        {
+            Name = name;
+        }
+    }
+
+    public interface IInterface
+    {
+        string Name { get; }
+    }
+
+    public class Impl1 : IInterface
+    {
+        public Impl1(string name)
+        {
+            Name = name;
+        }
+
+        public string Name
+        {
+            get;
+        }
+    }
+
+    public class Impl2 : IInterface
+    {
+        public Impl2(string name)
+        {
+            Name = name;
+        }
+
+        public string Name
+        {
+            get;
+        }
+    }
+
+    public class ClassWithInterfaceField
+    {
+        public ClassWithInterfaceField(IInterface i)
+        {
+            Int = i;
+        }
+
+        public IInterface Int { get; }
+    }
+
+    public class ClassWithObjectGraph
+    {
+        public ClassWithObjectGraph(MyClass innerObject, string stringBuilder)
+        {
+            InnerObject = innerObject;
+            StringBuilder = new StringBuilder(stringBuilder);
+        }
+
+        public StringBuilder StringBuilder { get; }
         public MyClass InnerObject { get; }
 
         public class MyClass
         {
+            public string Name { get; }
             public MyClass2 InnerObj { get; }
 
-            public MyClass(MyClass2 innerObject)
+            public MyClass(MyClass2 innerObject, string name)
             {
                 InnerObj = innerObject;
+                Name = name;
             }
 
             public class MyClass2
